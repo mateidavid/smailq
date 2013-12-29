@@ -1,0 +1,40 @@
+#!/bin/sh
+
+# Copyright (c) 2013 Stefan Huber <shuber@sthu.org>
+
+set -e
+
+CMD="$(dirname $0)/smailq"
+options=
+list="0"
+
+usage() {
+    cat << EOF
+A wrapper script for smailq that behaves like sendmail. 
+
+USAGE:
+  $0 [OPTIONS] [recipient ...]
+  $0 --help  
+
+It simply calls '$CMD --send -- [OPTIONS] [recipient ...]'. In
+particular, it passes all options as MSA options to smailq.
+EOF
+}
+
+
+options=()
+while [ $# -gt "0" ]; do
+    if [ "$1" == "-bp" ]; then
+        list="1"
+    else
+        options+=("$1")
+    fi
+    shift
+done
+
+if [ "$list" = "1" ]; then
+    smailq --list
+else
+    smailq --send -- "${options[@]}"
+fi
+

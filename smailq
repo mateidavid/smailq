@@ -1,0 +1,472 @@
+#!/usr/bin/env python3
+"""A mail queue for lightweight SMTP clients (MSAs) like msmtp."""
+
+__author__ = "Stefan Huber"
+__copyright__ = "Copyright 2013"
+
+__license__ = "LGPL-3"
+__version__ = "1.0"
+
+
+from contextlib import contextmanager
+import configparser
+import fcntl
+import getopt
+import os
+import pickle
+import random
+import shlex
+import subprocess
+import sys
+import time
+import socket
+
+
+verbose = False
+quiet = False
+
+
+class Config:
+    """Configuration read from a config file"""
+
+    class ConfigError(RuntimeError):
+        """Error when reading config file"""
+        def __init__(self, value):
+            self.value = value
+            self.message = value
+
+    def __init__(self, conffn):
+        self.logdir = None
+        self.datadir = None
+        self.nwtesthost = None
+        self.nwtestport = None
+        self.nwtesttimeout = None
+        self.msacmd = None
+
+        self.__nwtest = None
+
+        self.__read(conffn)
+
+    def __read(self, conffn):
+        conf = configparser.RawConfigParser()
+        conf.read(conffn)
+
+        self.logdir = "~/.smailq/log"
+        self.datadir = "~/.smailq/data"
+        self.nwtesthost = "www.google.com"
+        self.nwtestport = 80
+        self.nwtesttimeout = 8
+
+        self.logdir = conf.get("general", "logdir", fallback=self.logdir)
+        self.datadir = conf.get("general", "datadir", fallback=self.datadir)
+        self.nwtesthost = conf.get("nwtest", "host", fallback=self.nwtesthost)
+        self.nwtestport = conf.getint("nwtest", "port",
+                                      fallback=self.nwtestport)
+        self.nwtesttimeout = conf.getint("nwtest", "timeout",
+                                         fallback=self.nwtesttimeout)
+
+        if not conf.has_option("msa", "cmd"):
+            raise Config.ConfigError("Section 'msa' contains no 'cmd' option.")
+        self.msacmd = conf.get("msa", "cmd")
+
+    def getdatadir(self):
+        """Returns the directory for the mail data"""
+        return os.path.expanduser(self.datadir)
+
+    def getlogdir(self):
+        """Returns the directory for the log data"""
+        return os.path.expanduser(self.logdir)
+
+    def getlockfn(self):
+        """Get a lock filename of the data directory"""
+        return self.getdatadir() + "/.lock"
+
+    def getmailfn(self, id):
+        return self.getdatadir() + "/" + id + ".eml"
+
+    def getmsaargsfn(self, id):
+        return self.getdatadir() + "/" + id + ".msaargs"
+
+    @contextmanager
+    def aquiredatalock(self):
+        """Get a lock on the data directory"""
+        fn = self.getlockfn()
+
+        # If lock file exists, wait until it disappears
+        while os.path.exists(fn):
+            time.sleep(0.05)
+
+        # Use lockf to get exclusive access to file
+        fp = open(fn, 'w')
+        fcntl.lockf(fp, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.lockf(fp, fcntl.LOCK_UN)
+            fp.close()
+            os.remove(self.getlockfn())
+
+    def networktest(self):
+        """Test if we have connection to the internet."""
+
+        if self.__nwtest is None:
+            self.__nwtest = False
+            try:
+                host = (self.nwtesthost, self.nwtestport)
+                to = self.nwtesttimeout
+                with socket.create_connection(host, timeout=to):
+                    self.__nwtest = True
+            except OSError as e:
+                pass
+            except Exception as e:
+                printerr(e)
+
+        return self.__nwtest
+
+
+class MailQueue:
+
+    def __init__(self, conf):
+        self.conf = conf
+        self.__mailids = None
+
+    def get_mail_ids(self):
+        """Return a list of all mail IDs"""
+
+        # Get mail and msaargs files in datadir
+        listdir = os.listdir(self.conf.getdatadir())
+        mailfiles = [f for f in listdir if f.endswith(".eml")]
+        msaargsfiles = [f for f in listdir if f.endswith(".msaargs")]
+
+        # Strip of file endings
+        mailfiles = [f[:-4] for f in mailfiles]
+        msaargsfiles = [f[:-8] for f in msaargsfiles]
+
+        # Check if symmetric difference is zero
+        for f in set(mailfiles) - set(msaargsfiles):
+            printerr("For ID %s an eml file but no msaargs file exists." % f)
+        for f in set(msaargsfiles) - set(mailfiles):
+            printerr("For ID %s a msaargs file but no eml file exists." % f)
+
+        # Get mail IDs
+        return set(mailfiles) & set(msaargsfiles)
+
+    def getmailinfo(self, id):
+        """Get some properties of mail with given ID"""
+        assert(id in self.get_mail_ids())
+
+        mailfn = self.conf.getmailfn(id)
+
+        info = {}
+        info['ctime'] = time.ctime(os.path.getctime(mailfn))
+        info['size'] = os.path.getsize(mailfn)
+
+        with open(mailfn, "r") as f:
+            mail = f.readlines()
+
+            for l in mail:
+                if l.startswith("Subject:"):
+                    info['subject'] = l[8:].strip()
+                    break
+
+            for l in mail:
+                if l.startswith("To:"):
+                    info['to'] = l[3:].strip()
+                    break
+
+        return info
+
+    def printmailinfo(self, id):
+        """Print some info on the mail with given ID"""
+
+        print("ID %s:" % id)
+
+        if not id in self.get_mail_ids():
+            printerr("ID %s is not in the queue!" % id)
+            return
+
+        info = self.getmailinfo(id)
+
+        print("  Time: %s" % info['ctime'])
+        print("  Size: %s Bytes" % info['size'])
+        print("  To: %s" % info['to'])
+        print("  Subject: %s" % info['subject'])
+
+    def listqueue(self):
+        """Print a list of mails in the mail queue"""
+
+        ids = self.get_mail_ids()
+        print("%d mails in the queue.\n" % len(ids))
+        for id in ids:
+            self.printmailinfo(id)
+            print()
+
+    def deletemail(self, id):
+        """Attempt to deliver mail with given ID"""
+        printinfo("Removing mail with ID " + id)
+
+        if not id in self.get_mail_ids():
+            printerr("ID %s is not in the queue!" % id)
+            return
+
+        os.remove(conf.getmailfn(id))
+        os.remove(conf.getmsaargsfn(id))
+        log(conf, "Removed from queue.", id=id)
+
+    def delivermail(self, id):
+        """Attempt to deliver mail with given ID"""
+        printinfo("Deliver mail with ID " + id)
+
+        if not id in self.get_mail_ids():
+            printerr("ID %s is not in the queue!" % id)
+            return
+
+        if not self.conf.networktest():
+            printinfo("Network down. Do not deliver mail.")
+            return
+
+        info = self.getmailinfo(id)
+        log(conf, "Attempting to deliver mail. To=%s" % info['to'], id=id)
+
+        # Read the mail
+        mailfn = self.conf.getmailfn(id)
+        mailf = open(mailfn, "r")
+
+        # Read the options
+        msaargsfn = self.conf.getmsaargsfn(id)
+        msaargs = None
+        with open(msaargsfn, "rb") as f:
+            msaargs = pickle.load(f)
+
+        # Build argv for the MSA
+        msacmd = self.conf.msacmd
+        msaargv = shlex.split(msacmd)
+        msaargv += msaargs
+
+        # Call the MSA and give it the mail
+        printinfo("Calling " + " ".join([shlex.quote(m) for m in msaargv]))
+        ret = subprocess.call(msaargv, stdin=mailf)
+
+        if ret == 0:
+            log(conf, "Delivery successful.", id=id)
+            self.deletemail(id)
+        else:
+            log(conf, "Delivery failed with exit code %d." % ret, id=id)
+
+    def delivermails(self):
+        """Attempt to deliver all mails in the mail queue"""
+        printinfo("Deliver mails in the queue.")
+
+        if not self.conf.networktest():
+            printinfo("Network down. Do not deliver mails.")
+            return
+
+        for id in self.get_mail_ids():
+            self.delivermail(id)
+
+    def enqueuemail(self, mail, msaargs):
+        """Insert the given mail into the mail queue"""
+        # Creeate a new ID
+        id = None
+        while True:
+            nibbles = 8
+            id = hex(random.getrandbits(4*nibbles))[2:].upper()
+            while len(id) < nibbles:
+                id = '0' + id
+            if not os.path.exists(self.conf.getmailfn(id)):
+                break
+
+        log(conf, "Insert into queue.", id=id)
+
+        # Write the mail
+        mailfn = self.conf.getmailfn(id)
+        with open(mailfn, "w") as f:
+            f.write(mail)
+
+        # Write the options
+        msaargsfn = self.conf.getmsaargsfn(id)
+        with open(msaargsfn, "wb") as f:
+            pickle.dump(msaargs, f)
+
+        return id
+
+    def sendmail(self, mail, msaargs):
+        """Insert a mail in the mail queue, and attempt to deliver mails"""
+        self.enqueuemail(mail, msaargs)
+        self.delivermails()
+
+
+def log(conf, msg, id=None):
+    """Write message to log file"""
+    fn = conf.getlogdir() + "/smailq.log"
+
+    with open(fn, 'a') as f:
+        fcntl.lockf(f, fcntl.LOCK_EX)
+        # Prepend ID to msg
+        if id is not None:
+            msg = ("ID %s: " % id) + msg
+        # Prepend time to msg
+        msg = time.strftime("%Y-%m-%d %H:%M:%S: ", time.localtime()) + msg
+
+        # Write msg line
+        f.write(msg + "\n")
+        if not quiet:
+            print(msg)
+
+        fcntl.lockf(f, fcntl.LOCK_UN)
+
+
+def printerr(msg):
+    """Print an error message"""
+    print(msg, file=sys.stderr)
+
+
+def printinfo(msg):
+    if verbose:
+        print(msg)
+
+
+def version():
+    """Show version info"""
+
+    print("smailq " + __version__)
+    print("Copyright (C) 2013 Stefan Huber")
+
+
+def usage():
+    """Print usage text of this program"""
+
+    print("""
+smailq is a mail queue for lightweight SMTP clients (MSAs) like msmtp that do
+not provide a queue. It basically provides the functionality of sendmail and
+mailq.
+
+USAGE:
+
+  {0} --send [recipient ...] -- [MSA options ...]
+  {0} --list
+  {0} --deliver-all
+  {0} --deliver [ID ...]
+  {0} --delete [ID ...]
+  {0} --help
+  {0} --version
+
+COMMANDS:
+
+      --delete
+          Remove the mails with given IDs from the queue.
+
+      --deliver
+          Attempt to deliver the mails with given IDs only.
+
+      --deliver-all
+          Attempt to deliver all mails in the queue.
+
+  -h, --help
+          Print this usage text.
+
+      --list
+          List all mails in the queue. This is the default
+
+      --send
+          Read a mail from stdin, insert it into the queue, and attempt to
+          deliver all mails in the queue. Options after "--" are passed forward
+          to the MSA for this particular mail.
+
+  -V, --version
+          Show version info.
+
+OPTIONS:
+
+  -C, --config=FILE
+          Use the given configuration file instead of "$HOME/.smailq.conf".
+
+  -q, --quiet
+          Do not print info messages.
+
+  -v, --verbose
+          Increase output verbosity.
+""".format(sys.argv[0]))
+
+
+if __name__ == "__main__":
+
+    conffn = os.path.expanduser("~/.smailq.conf")
+    cmd = "--list"
+    nooptargs = []
+
+    try:
+
+        longopts = ["config=", "delete", "deliver-all", "deliver", "help",
+                    "list", "send", "verbose", "version", "quiet"]
+        opts, nooptargs = getopt.gnu_getopt(sys.argv[1:], "hC:vVq", longopts)
+
+        for opt, arg in opts:
+            if opt in ['-h', '--help']:
+                usage()
+                sys.exit(os.EX_OK)
+            elif opt in ['-V', '--version']:
+                version()
+                sys.exit(os.EX_OK)
+            elif opt in ['--list', '--send', '--delete', '--deliver-all',
+                         '--deliver']:
+                cmd = opt
+            elif opt in ['-C', '--config']:
+                conffn = arg
+            elif opt in ['-v', '--verbose']:
+                verbose = True
+                quiet = False
+            elif opt in ['-q', '--quiet']:
+                quiet = True
+                verbose = False
+            else:
+                assert(False)
+
+    except getopt.GetoptError as e:
+        printerr("Error parsing arguments:", e)
+        usage()
+        sys.exit(os.EX_USAGE)
+
+    # Reading config file
+    if not os.path.isfile(conffn):
+        printerr("No such config file:", conffn)
+        sys.exit(os.EX_IOERR)
+    conf = None
+    try:
+        conf = Config(conffn)
+
+        if not os.path.isdir(conf.getdatadir()):
+            printerr("Data directory does not exist: " + conf.getdatadir())
+            sys.exit(os.EX_IOERR)
+
+        if not os.path.isdir(conf.getlogdir()):
+            printerr("Log directory does not exist: " + conf.getlogdir())
+            sys.exit(os.EX_IOERR)
+
+    except Exception as e:
+        printerr("Error reading config file:", e)
+        sys.exit(os.EX_IOERR)
+
+    try:
+        with conf.aquiredatalock():
+
+            printinfo("Aquired the lock.")
+
+            mq = MailQueue(conf)
+            if cmd == "--send":
+                mail = sys.stdin.read()
+                mq.sendmail(mail, nooptargs)
+            elif cmd == "--list":
+                mq.listqueue()
+            elif cmd == "--deliver-all":
+                mq.delivermails()
+            elif cmd == "--deliver":
+                for id in nooptargs:
+                    mq.delivermail(id)
+            elif cmd == "--delete":
+                for id in nooptargs:
+                    mq.deletemail(id)
+
+    except OSError as e:
+        printerr(e)
+        sys.exit(os.EX_IOERR)

@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook V4.4//EN"
+"file:///usr/share/xml/docbook/schema/dtd/4.4/docbookx.dtd"
+[]>
+
+<refentry>
+
+	<refentryinfo>
+        <address>
+            <email>shuber@sthu.org</email>
+        </address>
+		<author>
+			<firstname>Stefan</firstname>
+			<surname>Huber</surname>
+		</author>
+		<date>2013-12-29</date>
+	</refentryinfo>
+
+	<refmeta>
+		<refentrytitle>smailq</refentrytitle>
+		<manvolnum>1</manvolnum>
+        <refmiscinfo>smailq 1.0</refmiscinfo>q
+	</refmeta>
+
+	<refnamediv>
+        <refname><application>smailq</application></refname>
+		<refpurpose>A simple mail queue.</refpurpose>
+	</refnamediv>
+
+	<refsynopsisdiv>
+		<cmdsynopsis>
+			<command>smailq</command>
+            <option>--send</option>
+			<arg rep="repeat"><replaceable>recipient</replaceable></arg>
+            <option>--</option>
+			<arg rep="repeat"><replaceable>MSA options</replaceable></arg>
+		</cmdsynopsis>
+		<cmdsynopsis>
+			<command>smailq</command>
+            <option>--list</option>
+		</cmdsynopsis>
+		<cmdsynopsis>
+			<command>smailq</command>
+            <option>--deliver-all</option>
+		</cmdsynopsis>
+		<cmdsynopsis>
+			<command>smailq</command>
+            <option>--deliver</option>
+			<arg rep="repeat"><replaceable>ID</replaceable></arg>
+		</cmdsynopsis>
+		<cmdsynopsis>
+			<command>smailq</command>
+            <option>--delete</option>
+			<arg rep="repeat"><replaceable>ID</replaceable></arg>
+		</cmdsynopsis>
+		<cmdsynopsis>
+			<command>smailq</command>
+            <option>--help</option>
+		</cmdsynopsis>
+		<cmdsynopsis>
+			<command>smailq</command>
+            <option>--version</option>
+		</cmdsynopsis>
+	</refsynopsisdiv>
+  
+	<refsect1>
+		<title>DESCRIPTION</title>
+	
+		<para>
+            <command>smailq</command> is a mail queue for lightweight SMTP
+            clients (MSAs) like msmtp that do not provide a queue. It basically
+            provides the functionality of sendmail and mailq.
+		</para>
+
+		<para>
+            When <command>smailq</command> sends a mail it first inserts the
+            mail into the message queue and then attempts to deliver all mails
+            in the queue using an external MSA such as msmtp.
+		</para>
+	
+	</refsect1>
+
+	<refsect1>
+		<title>COMMANDS</title>
+	
+		<variablelist>
+	
+		<varlistentry>
+			<term><option>--delete</option></term>
+			<listitem>
+				<para>Remove the mails with given IDs from the queue.</para>
+			</listitem>
+		</varlistentry>
+
+		<varlistentry>
+			<term><option>--deliver</option></term>
+			<listitem>
+				<para>Attempt to deliver the mails with given IDs only.</para>
+			</listitem>
+		</varlistentry>
+
+		<varlistentry>
+			<term><option>--deliver-all</option></term>
+			<listitem>
+				<para>Attempt to deliver all mails in the queue.</para>
+			</listitem>
+		</varlistentry>
+
+		<varlistentry>
+			<term><option>-h</option></term>
+			<term><option>--help</option></term>
+			<listitem>
+				<para>Print usage text.</para>
+			</listitem>
+		</varlistentry>
+
+		<varlistentry>
+			<term><option>--list</option></term>
+			<listitem>
+				<para>List all mails in the queue. This is the default.</para>
+			</listitem>
+		</varlistentry>
+
+		<varlistentry>
+			<term><option>--send</option></term>
+			<listitem>
+                <para>Read a mail from stdin, insert it into the queue, and
+                    attempt to deliver all mails in the queue. Options after
+                    "--" are passed forward to the MSA for this particular
+                    mail.</para>
+			</listitem>
+		</varlistentry>
+
+		<varlistentry>
+			<term><option>-V</option></term>
+			<term><option>--version</option></term>
+			<listitem>
+				<para>Show version info.</para>
+			</listitem>
+		</varlistentry>
+
+		</variablelist>
+	</refsect1>
+  
+
+	<refsect1>
+		<title>OPTIONS</title>
+	
+		<variablelist>
+	
+		<varlistentry>
+			<term><option>-C</option></term>
+			<term><option>--config FILE</option></term>
+			<listitem>
+                <para>Use the given configuration file instead of
+                    "$HOME/.smailq.conf".</para>
+			</listitem>
+		</varlistentry>
+
+		<varlistentry>
+			<term><option>-q</option></term>
+			<term><option>--quiet</option></term>
+			<listitem>
+				<para>Do not print info messages.</para>
+			</listitem>
+		</varlistentry>
+
+		<varlistentry>
+			<term><option>-v</option></term>
+			<term><option>--verbose</option></term>
+			<listitem>
+				<para>Increase output verbosity.</para>
+			</listitem>
+		</varlistentry>
+
+	</variablelist>
+	</refsect1>
+
+	<refsect1>
+        <title>CONFIGURATION FILES</title>
+
+        <para>
+            By default, <command>smailq</command> reads $HOME/.smailq.conf as
+            configuration file. The syntax follows RFC 822. A sample
+            configuration file contains the following lines:
+		</para>
+
+        <programlisting>
+[general]
+# Optional: The directory where the log file is written to
+logdir = ~/.smailq/log/
+# Optional: The directory where smailq saves the mail queue data
+datadir = ~/.smailq/data/
+
+# Settings for the network (TCP) connectivity test
+[nwtest]
+# Optional: The host to connect to
+host = www.google.com
+# Optional: The port to connect to
+port = 80
+# Optional: The timeout
+timeout = 8
+
+# Settings concerning the mail submission agent
+[msa]
+# This command is called when smailq attempts to deliver a mail. The
+# MSA-options passed to smailq are appended to this line.
+cmd = /usr/bin/msmtp
+        </programlisting>
+
+	</refsect1>
+
+	<refsect1>
+        <title>BUGS</title>
+        Bug reports to Stefan Huber <email>shuber@sthu.org</email>.
+    </refsect1>
+
+	<refsect1>
+		<title>AUTHOR</title>
+	
+        <para>
+            <author>
+                <firstname>Stefan</firstname>
+                <surname>Huber</surname>
+                <contrib>Original author</contrib>
+                <email>shuber@sthu.org</email>
+            </author>
+		</para>
+	</refsect1>
+</refentry>

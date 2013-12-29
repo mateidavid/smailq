@@ -1,0 +1,38 @@
+#!/bin/sh
+
+# Copyright (c) 2013 Stefan Huber <shuber@sthu.org>
+
+set -e
+
+PROGNAME=$(basename $0)
+
+usage() {
+    cat <<EOF
+List the mails in the mail queue by calling 'smailq --list'.
+
+USAGE:
+  $0 [OPTION]
+
+OPTIONS:
+  -h, --help    Print this text
+EOF
+}
+
+
+TEMP=`getopt -o "h" --long "help" -n "$PROGNAME" -- "$@"`
+eval set - "$TEMP"
+
+while true; do
+    case "$1" in
+        -h | --help )
+            usage
+            exit $STATE_OK ;;
+        -- )
+            shift
+            break ;;
+        * )
+            break ;;
+    esac
+done
+
+smailq --list
