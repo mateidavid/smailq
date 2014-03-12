@@ -163,8 +163,8 @@ class MailQueue:
         info['to'] = ""
         info['subject'] = ""
 
-        with open(mailfn, "r") as f:
-            mail = f.readlines()
+        with open(mailfn, "rb") as f:
+            mail = f.read().decode('utf8', 'replace').splitlines()
 
             for l in mail:
                 if l.startswith("Subject:"):
@@ -234,7 +234,7 @@ class MailQueue:
 
         # Read the mail
         mailfn = self.conf.getmailfn(id)
-        mailf = open(mailfn, "r")
+        mailf = open(mailfn, "rb")
 
         # Read the options
         msaargsfn = self.conf.getmsaargsfn(id)
@@ -284,7 +284,7 @@ class MailQueue:
 
         # Write the mail
         mailfn = self.conf.getmailfn(id)
-        with open(mailfn, "w") as f:
+        with open(mailfn, "wb") as f:
             f.write(mail)
 
         # Write the options
@@ -458,7 +458,7 @@ if __name__ == "__main__":
 
             mq = MailQueue(conf)
             if cmd == "--send":
-                mail = sys.stdin.read()
+                mail = sys.stdin.buffer.read()
                 mq.sendmail(mail, nooptargs)
             elif cmd == "--list":
                 mq.listqueue()
