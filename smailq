@@ -450,7 +450,7 @@ if __name__ == "__main__":
                 assert(False)
 
     except getopt.GetoptError as e:
-        printerr("Error parsing arguments:", e)
+        printerr("Error parsing arguments: " + str(e))
         usage()
         sys.exit(os.EX_USAGE)
 
@@ -474,7 +474,7 @@ if __name__ == "__main__":
             os.mkdir(conf.getlogdir())
 
     except Exception as e:
-        printerr("Error reading config file:", e)
+        printerr("Error reading config file: " + str(e))
         sys.exit(os.EX_IOERR)
 
     try:
