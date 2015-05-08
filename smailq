@@ -426,42 +426,49 @@ OPTIONS:
 if __name__ == "__main__":
 
     conffn_list = [os.path.expanduser("~/.smailq.conf"), "/etc/smailq.conf"]
-    cmd = "--list"
-    nooptargs = []
 
-    try:
+    # gather main command and remaining options
+    if os.path.basename(sys.argv[0]) == 'mailq':
+        cmd = "--list"
+        nooptargs = []
+    elif os.path.basename(sys.argv[0]).startswith('sendmail'):
+        cmd = "--send"
+        nooptargs = sys.argv[1:]
+    else:
+        cmd = "--list"
+        nooptargs = []
+        try:
+            longopts = ["config=", "data-dir=", "delete", "deliver-all", "deliver", "help",
+                        "list", "send", "verbose", "version", "quiet", "deliver-spool"]
+            opts, nooptargs = getopt.gnu_getopt(sys.argv[1:], "hC:vVq", longopts)
 
-        longopts = ["config=", "data-dir=", "delete", "deliver-all", "deliver", "help",
-                    "list", "send", "verbose", "version", "quiet", "deliver-spool"]
-        opts, nooptargs = getopt.gnu_getopt(sys.argv[1:], "hC:vVq", longopts)
+            for opt, arg in opts:
+                if opt in ['-h', '--help']:
+                    usage()
+                    sys.exit(os.EX_OK)
+                elif opt in ['-V', '--version']:
+                    version()
+                    sys.exit(os.EX_OK)
+                elif opt in ['--list', '--send', '--delete', '--deliver-all',
+                             '--deliver', '--deliver-spool']:
+                    cmd = opt
+                elif opt in ['-C', '--config']:
+                    conffn_list = [arg]
+                elif opt == '--data-dir':
+                    data_dir = arg
+                elif opt in ['-v', '--verbose']:
+                    verbose = True
+                    quiet = False
+                elif opt in ['-q', '--quiet']:
+                    quiet = True
+                    verbose = False
+                else:
+                    assert(False)
 
-        for opt, arg in opts:
-            if opt in ['-h', '--help']:
-                usage()
-                sys.exit(os.EX_OK)
-            elif opt in ['-V', '--version']:
-                version()
-                sys.exit(os.EX_OK)
-            elif opt in ['--list', '--send', '--delete', '--deliver-all',
-                         '--deliver', '--deliver-spool']:
-                cmd = opt
-            elif opt in ['-C', '--config']:
-                conffn_list = [arg]
-            elif opt == '--data-dir':
-                data_dir = arg
-            elif opt in ['-v', '--verbose']:
-                verbose = True
-                quiet = False
-            elif opt in ['-q', '--quiet']:
-                quiet = True
-                verbose = False
-            else:
-                assert(False)
-
-    except getopt.GetoptError as e:
-        printerr("Error parsing arguments: " + str(e))
-        usage()
-        sys.exit(os.EX_USAGE)
+        except getopt.GetoptError as e:
+            printerr("Error parsing arguments: " + str(e))
+            usage()
+            sys.exit(os.EX_USAGE)
 
     # Reading config file
     conffn = next((f for f in conffn_list if os.path.isfile(f)), None)
