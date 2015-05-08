@@ -395,7 +395,7 @@ OPTIONS:
 
 if __name__ == "__main__":
 
-    conffn = os.path.expanduser("~/.smailq.conf")
+    conffn_list = [os.path.expanduser("~/.smailq.conf"), "/etc/smailq.conf"]
     cmd = "--list"
     nooptargs = []
 
@@ -416,7 +416,7 @@ if __name__ == "__main__":
                          '--deliver']:
                 cmd = opt
             elif opt in ['-C', '--config']:
-                conffn = arg
+                conffn_list = [arg]
             elif opt in ['-v', '--verbose']:
                 verbose = True
                 quiet = False
@@ -432,8 +432,9 @@ if __name__ == "__main__":
         sys.exit(os.EX_USAGE)
 
     # Reading config file
-    if not os.path.isfile(conffn):
-        printerr("No such config file:", conffn)
+    conffn = next((f for f in conffn_list if os.path.isfile(f)), None)
+    if not conffn:
+        printerr("No config file found: " + str(conffn_list))
         sys.exit(os.EX_IOERR)
     conf = None
     try:
