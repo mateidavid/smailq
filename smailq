@@ -21,6 +21,7 @@ import sys
 import time
 import socket
 import syslog
+import getpass
 
 
 verbose = False
@@ -54,13 +55,19 @@ class Config:
         conf.read(conffn)
 
         self.logdir = "~/.smailq/log"
+        self.spooldir = None
         self.datadir = "~/.smailq/data"
         self.nwtesthost = "www.google.com"
         self.nwtestport = 80
         self.nwtesttimeout = 8
 
         self.logdir = conf.get("general", "logdir", fallback=self.logdir)
-        self.datadir = conf.get("general", "datadir", fallback=self.datadir)
+        self.spooldir = conf.get("general", "spooldir", fallback=self.spooldir)
+        if self.spooldir:
+            spoolsubdir = os.path.join(self.spooldir, getpass.getuser())
+            self.datadir = conf.get("general", "datadir", fallback=spoolsubdir)
+        else:
+            self.datadir = conf.get("general", "datadir", fallback=self.datadir)
         self.nwtesthost = conf.get("nwtest", "host", fallback=self.nwtesthost)
         self.nwtestport = conf.getint("nwtest", "port",
                                       fallback=self.nwtestport)
@@ -70,6 +77,10 @@ class Config:
         if not conf.has_option("msa", "cmd"):
             raise Config.ConfigError("Section 'msa' contains no 'cmd' option.")
         self.msacmd = conf.get("msa", "cmd")
+
+    def getspooldir(self):
+        """Returns the spool directory"""
+        return self.spooldir
 
     def getdatadir(self):
         """Returns the directory for the mail data"""
