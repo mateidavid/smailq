@@ -20,6 +20,7 @@ import subprocess
 import sys
 import time
 import socket
+import stat
 import syslog
 import getpass
 
@@ -27,6 +28,14 @@ import getpass
 verbose = False
 quiet = False
 data_dir = None
+spooldir_parent_mask = (stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR |
+                        stat.S_IRGRP |                stat.S_IXGRP |
+                        stat.S_IROTH |                stat.S_IXOTH)
+spooldir_mask = (stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR |
+                 stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP |
+                 stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH |
+                 stat.S_ISVTX)
+datadir_mask = (stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
 
 class Config:
@@ -423,7 +432,7 @@ if __name__ == "__main__":
     try:
 
         longopts = ["config=", "data-dir=", "delete", "deliver-all", "deliver", "help",
-                    "list", "send", "verbose", "version", "quiet"]
+                    "list", "send", "verbose", "version", "quiet", "deliver-spool"]
         opts, nooptargs = getopt.gnu_getopt(sys.argv[1:], "hC:vVq", longopts)
 
         for opt, arg in opts:
@@ -434,7 +443,7 @@ if __name__ == "__main__":
                 version()
                 sys.exit(os.EX_OK)
             elif opt in ['--list', '--send', '--delete', '--deliver-all',
-                         '--deliver']:
+                         '--deliver', '--deliver-spool']:
                 cmd = opt
             elif opt in ['-C', '--config']:
                 conffn_list = [arg]
@@ -463,9 +472,26 @@ if __name__ == "__main__":
     try:
         conf = Config(conffn)
 
-        if not os.path.isdir(conf.getdatadir()):
-            printerr("Data directory does not exist: " + conf.getdatadir())
-            sys.exit(os.EX_IOERR)
+        if cmd == '--deliver-spool':
+            if os.getuid() != 0:
+                printerr("Only root can deliver all spooled mail")
+                sys.exit(os.EX_USAGE)
+            if not conf.getspooldir():
+                printerr("No spool directory in config file")
+                sys.exit(os.EX_USAGE)
+            if not os.path.isdir(conf.getspooldir()):
+                if not os.path.isdir(os.path.dirname(conf.getspooldir())):
+                    printinfo('Creating parent of spooldir: ' + os.path.dirname(conf.getspooldir()))
+                    os.makedirs(os.path.dirname(conf.getspooldir()))
+                    os.chmod(os.path.dirname(conf.getspooldir()), spooldir_parent_mask)
+                printinfo('Creating spooldir: ' + conf.getspooldir())
+                os.mkdir(conf.getspooldir())
+                os.chmod(conf.getspooldir(), spooldir_mask)
+        else:
+            if not os.path.isdir(conf.getdatadir()):
+                printinfo('Creating datadir: ' + conf.getdatadir())
+                os.mkdir(conf.getdatadir())
+                os.chmod(conf.getdatadir(), datadir_mask)
 
         if conf.getlogdir() == 'syslog':
             syslog.openlog('smailq', 0, syslog.LOG_MAIL)
@@ -477,26 +503,39 @@ if __name__ == "__main__":
         printerr("Error reading config file: " + str(e))
         sys.exit(os.EX_IOERR)
 
-    try:
-        with conf.aquiredatalock():
+    if cmd == '--deliver-spool':
+        subdirs = [os.path.join(conf.getspooldir(), d)
+                   for d in os.listdir(conf.getspooldir())
+                   if os.path.isdir(os.path.join(conf.getspooldir(), d))]
+        for data_dir in subdirs:
+            try:
+                with conf.aquiredatalock():
+                    printinfo("Aquired the lock.")
+                    MailQueue(conf).delivermails()
+            except OSError as e:
+                printerr(e)
+                sys.exit(os.EX_IOERR)
+    else:
+        try:
+            with conf.aquiredatalock():
 
-            printinfo("Aquired the lock.")
+                printinfo("Aquired the lock.")
 
-            mq = MailQueue(conf)
-            if cmd == "--send":
-                mail = sys.stdin.buffer.read()
-                mq.sendmail(mail, nooptargs)
-            elif cmd == "--list":
-                mq.listqueue()
-            elif cmd == "--deliver-all":
-                mq.delivermails()
-            elif cmd == "--deliver":
-                for id in nooptargs:
-                    mq.delivermail(id)
-            elif cmd == "--delete":
-                for id in nooptargs:
-                    mq.deletemail(id)
+                mq = MailQueue(conf)
+                if cmd == "--send":
+                    mail = sys.stdin.buffer.read()
+                    mq.sendmail(mail, nooptargs)
+                elif cmd == "--list":
+                    mq.listqueue()
+                elif cmd == "--deliver-all":
+                    mq.delivermails()
+                elif cmd == "--deliver":
+                    for id in nooptargs:
+                        mq.delivermail(id)
+                elif cmd == "--delete":
+                    for id in nooptargs:
+                        mq.deletemail(id)
 
-    except OSError as e:
-        printerr(e)
-        sys.exit(os.EX_IOERR)
+        except OSError as e:
+            printerr(e)
+            sys.exit(os.EX_IOERR)
