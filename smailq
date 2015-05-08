@@ -25,6 +25,7 @@ import syslog
 
 verbose = False
 quiet = False
+data_dir = None
 
 
 class Config:
@@ -72,6 +73,8 @@ class Config:
 
     def getdatadir(self):
         """Returns the directory for the mail data"""
+        if data_dir:
+            return data_dir
         return os.path.expanduser(self.datadir)
 
     def getlogdir(self):
@@ -408,7 +411,7 @@ if __name__ == "__main__":
 
     try:
 
-        longopts = ["config=", "delete", "deliver-all", "deliver", "help",
+        longopts = ["config=", "data-dir=", "delete", "deliver-all", "deliver", "help",
                     "list", "send", "verbose", "version", "quiet"]
         opts, nooptargs = getopt.gnu_getopt(sys.argv[1:], "hC:vVq", longopts)
 
@@ -424,6 +427,8 @@ if __name__ == "__main__":
                 cmd = opt
             elif opt in ['-C', '--config']:
                 conffn_list = [arg]
+            elif opt == '--data-dir':
+                data_dir = arg
             elif opt in ['-v', '--verbose']:
                 verbose = True
                 quiet = False
