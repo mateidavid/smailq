@@ -20,6 +20,7 @@ import subprocess
 import sys
 import time
 import socket
+import syslog
 
 
 verbose = False
@@ -302,13 +303,19 @@ class MailQueue:
 
 def log(conf, msg, id=None):
     """Write message to log file"""
+    # Prepend ID to msg
+    if id is not None:
+        msg = ("ID %s: " % id) + msg
+
+    if conf.getlogdir() == 'syslog':
+        syslog.syslog(msg)
+        return
+
     fn = conf.getlogdir() + "/smailq.log"
 
     with open(fn, 'a') as f:
         fcntl.lockf(f, fcntl.LOCK_EX)
-        # Prepend ID to msg
-        if id is not None:
-            msg = ("ID %s: " % id) + msg
+
         # Prepend time to msg
         msg = time.strftime("%Y-%m-%d %H:%M:%S: ", time.localtime()) + msg
 
@@ -444,9 +451,11 @@ if __name__ == "__main__":
             printerr("Data directory does not exist: " + conf.getdatadir())
             sys.exit(os.EX_IOERR)
 
-        if not os.path.isdir(conf.getlogdir()):
-            printerr("Log directory does not exist: " + conf.getlogdir())
-            sys.exit(os.EX_IOERR)
+        if conf.getlogdir() == 'syslog':
+            syslog.openlog('smailq', 0, syslog.LOG_MAIL)
+        elif not os.path.isdir(conf.getlogdir()):
+            printinfo('Creating logdir: ' + conf.getlogdir())
+            os.mkdir(conf.getlogdir())
 
     except Exception as e:
         printerr("Error reading config file:", e)
